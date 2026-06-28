@@ -1,0 +1,57 @@
+[User / Scheduler]
+        |
+        v
+[Route /api/monitor/run]
+        |
+        v
+[MonitoringApiController@runCheck]
+        |
+        v
+[NetworkQualityService.checkQuality()]
+        |
+        v
+[Save MonitoringLog] ---> [Update Device record]
+        |
+        v
+[Decide Notification?]
+        |
+        +--> [Create NotificationLog] 
+        |         |
+        |         v
+        |  [Dispatch SendWhatsAppNotification Job]
+        |         |
+        |         v
+        |  [WhatsAppService -> Fonnte API]
+        |         |
+        |         v
+        |  [Update NotificationLog sent_at/is_sent]
+        |
+        +--> [No notification]        [User / Scheduler]
+                |
+                v
+        [Route /api/monitor/run]
+                |
+                v
+        [MonitoringApiController@runCheck]
+                |
+                v
+        [NetworkQualityService.checkQuality()]
+                |
+                v
+        [Save MonitoringLog] ---> [Update Device record]
+                |
+                v
+        [Decide Notification?]
+                |
+                +--> [Create NotificationLog] 
+                |         |
+                |         v
+                |  [Dispatch SendWhatsAppNotification Job]
+                |         |
+                |         v
+                |  [WhatsAppService -> Fonnte API]
+                |         |
+                |         v
+                |  [Update NotificationLog sent_at/is_sent]
+                |
+                +--> [No notification]

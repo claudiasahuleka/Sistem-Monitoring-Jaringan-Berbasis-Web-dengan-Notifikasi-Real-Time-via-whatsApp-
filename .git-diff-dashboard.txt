@@ -1,0 +1,448 @@
+﻿diff --git a/app/Http/Controllers/DashboardController.php b/resources/views/dashboard.blade.php
+index 93faf3b..5c7197f 100644
+--- a/app/Http/Controllers/DashboardController.php
++++ b/resources/views/dashboard.blade.php
+@@ -1,34 +1,407 @@
+-<?php
+-
+-namespace App\Http\Controllers;
+-
+-use App\Models\Device;
+-use App\Models\MonitoringLog;
+-use App\Models\NotificationLog;
+-
+-class DashboardController extends Controller
+-{
+-    public function index()
+-    {
+-        $totalDevices = Device::active()->count();
+-        $devicesUp = Device::active()->where('status', 'up')->count();
+-        $devicesDown = Device::active()->where('status', 'down')->count();
+-        $devicesUnknown = Device::active()->where('status', 'unknown')->count();
+-        $downtimeToday = MonitoringLog::whereDate('checked_at', today())->where('status', 'down')->count();
+-
+-        $recentNotifications = NotificationLog::with('device')->latest()->take(10)->get();
+-        $devices = Device::active()->orderByRaw("FIELD(status,'down','unknown','up')")->get();
+-        $lastUpdate = Device::active()->max('last_checked_at')?->format('H:i:s') ?? now()->format('H:i:s');
+-
+-        return view('dashboard', compact(
+-            'totalDevices',
+-            'devicesUp',
+-            'devicesDown',
+-            'devicesUnknown',
+-            'downtimeToday',
+-            'recentNotifications',
+-            'devices',
+-            'lastUpdate'
+-        ));
+-    }
+-}
+\ No newline at end of file
++@extends('layouts.app')
++@section('title', 'Dashboard')
++
++@section('content')
++
++    {{-- Alert Ticker (muncul saat ada perangkat DOWN/Slow) --}}
++    <div id="alert-ticker" class="alert alert-danger alert-dismissible d-none mb-3 py-2" role="alert">
++        <strong><i class="bi bi-exclamation-triangle"></i> ALERT:</strong>
++        <span id="alert-ticker-text"></span>
++    </div>
++
++    <div class="d-flex justify-content-between align-items-center mb-3">
++        <h4 class="mb-0"><i class="bi bi-speedometer2"></i> Dashboard Monitoring Real-Time</h4>
++        <div class="d-flex align-items-center gap-2">
++            <span class="badge bg-success" id="monitor-badge">
++                <span class="pulse">ÔùÅ</span> Monitoring Aktif
++            </span>
++            <small class="text-muted">Cek berikutnya: <span id="countdown">30</span>s</small>
++        </div>
++    </div>
++
++    {{-- Statistik Utama --}}
++    <div class="row g-2 mb-3">
++        <div class="col-6 col-md-3">
++            <div class="card shadow-sm border-start border-primary border-4">
++                <div class="card-body py-2">
++                    <div class="small text-muted">Total Perangkat</div>
++                    <div class="fs-4 fw-bold text-primary" id="stat-total">{{ $totalDevices }}</div>
++                </div>
++            </div>
++        </div>
++        <div class="col-6 col-md-3">
++            <div class="card shadow-sm border-start border-success border-4">
++                <div class="card-body py-2">
++                    <div class="small text-muted">Online & Baik</div>
++                    <div class="fs-4 fw-bold text-success" id="stat-up">{{ $devicesUp }}</div>
++                </div>
++            </div>
++        </div>
++        <div class="col-6 col-md-3">
++            <div class="card shadow-sm border-start border-warning border-4">
++                <div class="card-body py-2">
++                    <div class="small text-muted">Jaringan Lemah</div>
++                    <div class="fs-4 fw-bold text-warning" id="stat-slow">0</div>
++                </div>
++            </div>
++        </div>
++        <div class="col-6 col-md-3">
++            <div class="card shadow-sm border-start border-danger border-4">
++                <div class="card-body py-2">
++                    <div class="small text-muted">Offline</div>
++                    <div class="fs-4 fw-bold text-danger" id="stat-down">{{ $devicesDown }}</div>
++                </div>
++            </div>
++        </div>
++    </div>
++
++    <div class="row g-3">
++        {{-- Tabel Status Real-Time --}}
++        <div class="col-lg-8">
++            <div class="card shadow-sm">
++                <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
++                    <strong><i class="bi bi-list-check"></i> Status Perangkat</strong>
++                    <small class="text-muted">Update: <span id="last-update">{{ $lastUpdate }}</span></small>
++                </div>
++                <div class="card-body p-0">
++                    <table class="table table-hover align-middle mb-0" style="font-size:13px">
++                        <thead class="table-light">
++                            <tr>
++                                <th>Perangkat</th>
++                                <th>IP</th>
++                                <th>Status</th>
++                                <th>Kualitas</th>
++                                <th>Response</th>
++                                <th>Bandwidth</th>
++                                <th>Cek</th>
++                            </tr>
++                        </thead>
++                        <tbody id="device-table-body">
++                            @foreach($devices as $device)
++                                <tr data-device-id="{{ $device->id }}" id="row-{{ $device->id }}">
++                                    <td>
++                                        <div class="fw-semibold">{{ $device->name }}</div>
++                                        <small class="text-muted">{{ $device->location }}</small>
++                                    </td>
++                                    <td><code>{{ $device->ip_address }}</code></td>
++                                    <td>
++                                        <span class="badge bg-{{ $device->status_badge }}" id="status-{{ $device->id }}">
++                                            {{ $device->status_label }}
++                                        </span>
++                                    </td>
++                                    <td id="quality-{{ $device->id }}">
++                                        <span class="badge bg-secondary">ÔÇö</span>
++                                    </td>
++                                    <td id="rt-{{ $device->id }}">
++                                        {{ $device->response_time ? $device->response_time . ' ms' : 'ÔÇö' }}
++                                    </td>
++                                    <td id="bw-{{ $device->id }}" style="font-size:11px">
++                                        <span class="text-muted">ÔÇö</span>
++                                    </td>
++                                    <td id="checked-{{ $device->id }}" class="text-muted" style="font-size:11px">
++                                        {{ $device->last_checked_at?->format('H:i:s') ?? 'ÔÇö' }}
++                                    </td>
++                                </tr>
++                            @endforeach
++                        </tbody>
++                    </table>
++                </div>
++            </div>
++
++            {{-- Grafik Response Time 24 Jam --}}
++            <div class="card shadow-sm mt-3">
++                <div class="card-header bg-white py-2">
++                    <strong><i class="bi bi-graph-up"></i> Grafik Response Time (Real-Time)</strong>
++                </div>
++                <div class="card-body">
++                    <canvas id="responseChart" height="100"></canvas>
++                </div>
++            </div>
++        </div>
++
++        {{-- Panel Kanan: Alert & Notifikasi --}}
++        <div class="col-lg-4">
++            {{-- Live Alert Feed --}}
++            <div class="card shadow-sm mb-3">
++                <div class="card-header bg-white py-2 d-flex justify-content-between">
++                    <strong><i class="bi bi-bell"></i> Alert Live</strong>
++                    <span class="badge bg-danger rounded-pill" id="alert-count">0</span>
++                </div>
++                <div class="card-body p-0" style="max-height:220px;overflow-y:auto">
++                    <ul class="list-group list-group-flush" id="alert-feed">
++                        <li class="list-group-item text-center text-muted small py-3">
++                            Menunggu data monitoring...
++                        </li>
++                    </ul>
++                </div>
++            </div>
++
++            {{-- Notifikasi WA Terbaru --}}
++            <div class="card shadow-sm">
++                <div class="card-header bg-white py-2">
++                    <strong><i class="bi bi-whatsapp text-success"></i> Notifikasi WA Terkirim</strong>
++                </div>
++                <div class="card-body p-0" style="max-height:320px;overflow-y:auto">
++                    <ul class="list-group list-group-flush" id="notif-list">
++                        @forelse($recentNotifications as $notif)
++                            <li class="list-group-item py-2 px-3">
++                                <div class="d-flex gap-2">
++                                    @php
++                                        $colors = [
++                                            'down' => 'danger',
++                                            'recovery' => 'success',
++                                            'slow' => 'warning',
++                                            'stable' => 'info',
++                                            'bandwidth_high' => 'orange',
++                                        ];
++                                        $labels = [
++                                            'down' => 'DOWN',
++                                            'recovery' => 'PULIH',
++                                            'slow' => 'LEMAH',
++                                            'stable' => 'STABIL',
++                                            'bandwidth_high' => 'BW ÔÜá',
++                                        ];
++                                    @endphp
++                                    <span class="badge bg-{{ $colors[$notif->type] ?? 'secondary' }} mt-1"
++                                        style="font-size:9px;height:fit-content">
++                                        {{ $labels[$notif->type] ?? $notif->type }}
++                                    </span>
++                                    <div>
++                                        <div class="fw-semibold" style="font-size:12px">{{ $notif->device->name }}</div>
++                                        <div style="font-size:10px;color:#666">
++                                            {{ $notif->sent_at?->format('d/m H:i') }}
++                                            <span class="{{ $notif->is_sent ? 'text-success' : 'text-danger' }}">
++                                                {{ $notif->is_sent ? 'Ô£ô Terkirim' : 'Ô£ù Gagal' }}
++                                            </span>
++                                        </div>
++                                    </div>
++                                </div>
++                            </li>
++                        @empty
++                            <li class="list-group-item text-center text-muted small py-3">Belum ada notifikasi</li>
++                        @endforelse
++                    </ul>
++                </div>
++            </div>
++        </div>
++    </div>
++@endsection
++
++@push('scripts')
++    <script>
++        const MONITOR_URL = '{{ route("api.monitor.run") }}';
++        const INTERVAL = 30;
++
++        // ÔöÇÔöÇ Data grafik --
++        const chartLabels = [];
++        const chartData = { avg: [], max: [] };
++        const MAX_POINTS = 20;
++
++        // Inisialisasi grafik Chart.js
++        const ctx = document.getElementById('responseChart').getContext('2d');
++        const chart = new Chart(ctx, {
++            type: 'line',
++            data: {
++                labels: chartLabels,
++                datasets: [
++                    {
++                        label: 'Avg Response (ms)',
++                        data: chartData.avg,
++                        borderColor: '#2563eb',
++                        backgroundColor: 'rgba(37,99,235,0.1)',
++                        tension: 0.4, fill: true, pointRadius: 3,
++                    },
++                    {
++                        label: 'Max Response (ms)',
++                        data: chartData.max,
++                        borderColor: '#dc2626',
++                        backgroundColor: 'rgba(220,38,38,0.05)',
++                        tension: 0.4, fill: false, borderDash: [4, 4], pointRadius: 2,
++                    },
++                ],
++            },
++            options: {
++                responsive: true,
++                animation: { duration: 300 },
++                scales: {
++                    y: {
++                        beginAtZero: true,
++                        title: { display: true, text: 'ms' },
++                        grid: { color: 'rgba(0,0,0,0.05)' },
++                    },
++                    x: { grid: { display: false } },
++                },
++                plugins: { legend: { position: 'bottom' } },
++            },
++        });
++
++        // ÔöÇÔöÇ Badge & label kualitas ÔöÇÔöÇ
++        const qualityMap = {
++            good: { label: 'Ô£à Baik', cls: 'success' },
++            slow: { label: '­ƒƒí Melemah', cls: 'warning' },
++            very_slow: { label: '­ƒƒá Sangat Lemah', cls: 'danger' },
++            down: { label: '­ƒö┤ Terputus', cls: 'danger' },
++        };
++        const notifLabel = {
++            down: 'DOWN', recovery: 'PULIH', slow: 'LEMAH',
++            stable: 'STABIL', bandwidth_high: 'BW TINGGI',
++        };
++
++        let alertCount = 0;
++        let isChecking = false;
++        let countdown = INTERVAL;
++
++        // Countdown timer
++        setInterval(() => {
++            countdown--;
++            const el = document.getElementById('countdown');
++            if (el) el.textContent = countdown;
++            if (countdown <= 0) countdown = INTERVAL;
++        }, 1000);
++
++        // Jam navbar
++        setInterval(() => {
++            const el = document.getElementById('nav-last-check');
++            if (el) el.textContent = new Date().toLocaleTimeString('id-ID');
++        }, 1000);
++
++        async function runMonitoring() {
++            if (isChecking) return;
++            isChecking = true;
++
++            const badge = document.getElementById('monitor-badge');
++            badge.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Memeriksa...';
++
++            try {
++                const resp = await fetch(MONITOR_URL, {
++                    method: 'POST',
++                    headers: {
++                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
++                        'Accept': 'application/json',
++                        'Content-Type': 'application/json',
++                    }
++                });
++                const data = await resp.json();
++
++                let slowCount = 0, downCount = 0, upCount = 0;
++                const alerts = [];
++                const rtValues = [];
++
++                data.devices.forEach(d => {
++                    // Update baris tabel
++                    const row = document.getElementById('row-' + d.id);
++                    if (!row) return;
++
++                    // Status badge
++                    const sBadge = document.getElementById('status-' + d.id);
++                    sBadge.className = 'badge bg-' + (d.status === 'up' ? 'success' : 'danger');
++                    sBadge.textContent = d.status === 'up' ? 'Online' : 'Offline';
++
++                    // Kualitas badge
++                    const qEl = document.getElementById('quality-' + d.id);
++                    const qInfo = qualityMap[d.quality] || { label: 'ÔÇö', cls: 'secondary' };
++                    qEl.innerHTML = `<span class="badge bg-${qInfo.cls}" style="font-size:10px">${qInfo.label}</span>`;
++
++                    // Response time
++                    document.getElementById('rt-' + d.id).textContent =
++                        d.response_time ? d.response_time + ' ms' : 'ÔÇö';
++
++                    // Bandwidth
++                    const bwEl = document.getElementById('bw-' + d.id);
++                    if (d.bandwidth) {
++                        const inPct = d.bandwidth.in_util.toFixed(1);
++                        const outPct = d.bandwidth.out_util.toFixed(1);
++                        bwEl.innerHTML =
++                            `<div>Ôåô ${d.bandwidth.in_mbps} Mbps <small class="text-muted">(${inPct}%)</small></div>` +
++                            `<div>Ôåæ ${d.bandwidth.out_mbps} Mbps <small class="text-muted">(${outPct}%)</small></div>` +
++                            (d.bw_alert ? `<span class="badge bg-danger" style="font-size:9px">ÔÜá Tinggi</span>` : '');
++                    } else {
++                        bwEl.innerHTML = '<span class="text-muted">ÔÇö</span>';
++                    }
++
++                    // Waktu cek
++                    document.getElementById('checked-' + d.id).textContent = data.checked_at;
++
++                    // Warna baris
++                    if (d.status === 'down') {
++                        row.className = 'table-danger'; downCount++;
++                        alerts.push({ name: d.name, type: 'down', msg: 'Perangkat OFFLINE' });
++                    } else if (d.quality === 'very_slow') {
++                        row.className = 'table-warning'; slowCount++;
++                        alerts.push({ name: d.name, type: 'slow', msg: 'Jaringan Sangat Lemah (' + d.response_time + 'ms)' });
++                    } else if (d.quality === 'slow') {
++                        row.className = 'table-warning'; slowCount++;
++                    } else {
++                        row.className = ''; upCount++;
++                    }
++
++                    if (d.bw_alert) {
++                        alerts.push({ name: d.name, type: 'bw', msg: 'Bandwidth Tinggi (' + d.bw_util?.toFixed(1) + '%)' });
++                    }
++
++                    if (d.response_time) rtValues.push(d.response_time);
++                });
++
++                // Update statistik
++                document.getElementById('stat-up').textContent = upCount;
++                document.getElementById('stat-slow').textContent = slowCount;
++                document.getElementById('stat-down').textContent = downCount;
++
++                // Update alert ticker
++                const ticker = document.getElementById('alert-ticker');
++                if (downCount > 0 || slowCount > 0) {
++                    const msgs = alerts.map(a => a.name + ': ' + a.msg).join(' | ');
++                    document.getElementById('alert-ticker-text').textContent = msgs;
++                    ticker.classList.remove('d-none');
++                    ticker.className = ticker.className.replace(/alert-(danger|warning)/, '');
++                    ticker.classList.add(downCount > 0 ? 'alert-danger' : 'alert-warning');
++                } else {
++                    ticker.classList.add('d-none');
++                }
++
++                // Update alert feed
++                if (alerts.length > 0) {
++                    const feed = document.getElementById('alert-feed');
++                    const now = new Date().toLocaleTimeString('id-ID');
++                    alerts.forEach(a => {
++                        const li = document.createElement('li');
++                        li.className = 'list-group-item py-1 px-3 border-0';
++                        li.innerHTML =
++                            `<div style="font-size:11px">
++                                    <span class="text-muted">${now}</span>
++                                    <strong>${a.name}</strong> ÔÇö ${a.msg}
++                                 </div>`;
++                        feed.prepend(li);
++                    });
++                    alertCount += alerts.length;
++                    document.getElementById('alert-count').textContent = alertCount;
++                }
++
++                // Update grafik
++                const avgRt = rtValues.length ? Math.round(rtValues.reduce((a, b) => a + b, 0) / rtValues.length) : 0;
++                const maxRt = rtValues.length ? Math.max(...rtValues) : 0;
++                chartLabels.push(data.checked_at);
++                chartData.avg.push(avgRt);
++                chartData.max.push(maxRt);
++                if (chartLabels.length > MAX_POINTS) {
++                    chartLabels.shift(); chartData.avg.shift(); chartData.max.shift();
++                }
++                chart.update();
++
++                document.getElementById('last-update').textContent = data.checked_at;
++                badge.innerHTML = '<span class="pulse">ÔùÅ</span> ';
++
++            } catch (e) {
++                badge.innerHTML = 'ÔÜá Error';
++                console.error('Monitoring error:', e);
++            }
++
++            isChecking = false;
++            countdown = INTERVAL;
++        }
++
++        // Mulai monitoring 3 detik setelah halaman dibuka
++        setTimeout(runMonitoring, 3000);
++        setInterval(runMonitoring, INTERVAL * 1000);
++    </script>
++@endpush
+\ No newline at end of file

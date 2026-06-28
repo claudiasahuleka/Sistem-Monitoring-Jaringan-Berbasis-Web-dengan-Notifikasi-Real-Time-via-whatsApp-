@@ -1,0 +1,28 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('notification_logs', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('device_id')->constrained()->onDelete('cascade');
+            $table->string('wa_number');
+            $table->text('message');
+            $table->enum('type', ['down', 'recovery'])->default('down');
+            $table->boolean('is_sent')->default(false);
+            $table->text('response')->nullable();
+            $table->timestamp('sent_at')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('notification_logs');
+    }
+};
